@@ -63,7 +63,7 @@ def main(args):
     model = Squad2Model.from_pretrained("bert-base-uncased",
                 cache_dir=os.path.join(str(PYTORCH_PRETRAINED_BERT_CACHE)))
 
-    model = nn.DataParallel(model, args.gpu_ids)
+    #model = nn.DataParallel(model, args.gpu_ids)
     
     if args.load_path:
         log.info('Loading checkpoint from {}...'.format(args.load_path))
