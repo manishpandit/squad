@@ -24,14 +24,7 @@ from tqdm import tqdm
 from ujson import load as json_load
 from util import collate_fn, SQuAD
 
-
-from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
-from pytorch_pretrained_bert.modeling import BertForQuestionAnswering, BertConfig, WEIGHTS_NAME, CONFIG_NAME
-from pytorch_pretrained_bert.optimization import BertAdam, warmup_linear
-from pytorch_pretrained_bert.tokenization import (BasicTokenizer,
-                                                  BertTokenizer,
-                                                  whitespace_tokenize)
-from sqaud2_model import Squad2Model
+from bert_gmv import BertGMV
 
 def main(args):
     # Set up logging and devices
@@ -60,10 +53,11 @@ def main(args):
                   hidden_size=args.hidden_size,
                   drop_prob=args.drop_prob)
     '''
-    model = Squad2Model.from_pretrained("bert-base-uncased",
-                cache_dir=os.path.join(str(PYTORCH_PRETRAINED_BERT_CACHE)))
+    model = BertGMV(device)
+    #model = Squad2Model.from_pretrained("bert-base-uncased",
+    #            cache_dir=os.path.join(str(PYTORCH_PRETRAINED_BERT_CACHE)))
 
-    #model = nn.DataParallel(model, args.gpu_ids)
+    model = nn.DataParallel(model, args.gpu_ids)
     
     if args.load_path:
         log.info('Loading checkpoint from {}...'.format(args.load_path))

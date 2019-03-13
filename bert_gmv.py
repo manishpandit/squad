@@ -3,8 +3,10 @@ from torch import nn
 from torch.nn import CrossEntropyLoss
 import torch.nn.functional as F
 import math
+from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
 from pytorch_pretrained_bert.modeling import BertConfig, WEIGHTS_NAME, CONFIG_NAME, BertPreTrainedModel, BertModel
 from util import masked_softmax
+import os
 
 d_model = 96
 d_word = 768
@@ -178,7 +180,7 @@ class Pointer(nn.Module):
         p2 = F.log_softmax(Y2, dim=1)
         return p1, p2
         
-class Squad2Model(BertPreTrainedModel):
+class BertGMV(nn.Module):
     """BERT model for Question Answering (span extraction).
     This module is composed of the BERT model with a linear layer on top of
     the sequence output that computes start_logits and end_logits
@@ -219,16 +221,20 @@ class Squad2Model(BertPreTrainedModel):
     start_logits, end_logits = model(input_ids, token_type_ids, input_mask)
     ```
     """
-    def __init__(self, config):
-        super(Squad2Model, self).__init__(config)
-        self.bert = BertModel(config)
-        # TODO check with Google if it's normal there is no dropout on the token classifier of SQuAD in the TF version
+    def __init__(self, device):
+        super().__init__()
+        self.device = device
+        self.bert = BertModel.from_pretrained('bert-base-uncased', cache_dir=os.path.join(str(PYTORCH_PRETRAINED_BERT_CACHE)))
+        self.bert.to(device)
+        self.bert.eval()
+
+      # TODO check with Google if it's normal there is no dropout on the token classifier of SQuAD in the TF version
         # self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        print('config.hidden_size', config.hidden_size)
-        self.qa_outputs = nn.Linear(config.hidden_size, 2)
-        self.apply(self.init_bert_weights)
+        self.qa_outputs = nn.Linear(d_word, 2)
+        #self.apply(self.init_bert_weights)
 
         # Models of squad2
+        '''
         self.context_conv = DepthwiseSeparableConv(d_word,d_model, 5)
         self.question_conv = DepthwiseSeparableConv(d_word,d_model, 5)
         self.c_emb_enc = EncoderBlock(conv_num=4, ch_num=d_model, k=7, length=len_c)
@@ -238,21 +244,28 @@ class Squad2Model(BertPreTrainedModel):
         enc_blk = EncoderBlock(conv_num=2, ch_num=d_model, k=5, length=len_c)
         self.model_enc_blks = nn.ModuleList([enc_blk] * 7)
         self.out = Pointer()
+        '''
 
     def forward(self, cw_idxs, qw_idxs):
 
         c_mask = torch.zeros_like(cw_idxs) != cw_idxs
         q_mask = torch.zeros_like(qw_idxs) != qw_idxs
+        c_mask = c_mask.to(self.device)
+        q_mask = q_mask.to(self.device)
         c_len, q_len = c_mask.sum(-1), q_mask.sum(-1)
+        c_len = c_len.to(self.device)
+        q_len = q_len.to(self.device)
 
-        question_output, _ = self.bert(qw_idxs, attention_mask=q_mask, output_all_encoded_layers=False)
-        context_output, _ = self.bert(cw_idxs, attention_mask=c_mask, output_all_encoded_layers=False)
+        with torch.no_grad():
+            question_output, _ = self.bert(qw_idxs, attention_mask=q_mask, output_all_encoded_layers=False)
+            context_output, _ = self.bert(cw_idxs, attention_mask=c_mask, output_all_encoded_layers=False)
 
-        question_output = question_output.permute(0, 2, 1).float()
-        context_output = context_output.permute(0, 2, 1).float()
+        question_output = question_output.permute(0, 2, 1)
+        context_output = context_output.permute(0, 2, 1)
 
         input = torch.cat((question_output, context_output), dim=2)
-        input = input.permute(0, 2, 1).float()
+        input = input.permute(0, 2, 1)
+        print('input', input.shape)
         logits = self.qa_outputs(input)
         logits = logits[:,question_output.shape[2]:,:]
         start_logits, end_logits = logits.split(1, dim=-1)
