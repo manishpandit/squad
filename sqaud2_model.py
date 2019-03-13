@@ -4,6 +4,7 @@ from torch.nn import CrossEntropyLoss
 import torch.nn.functional as F
 import math
 from pytorch_pretrained_bert.modeling import BertConfig, WEIGHTS_NAME, CONFIG_NAME, BertPreTrainedModel, BertModel
+from util import masked_softmax
 
 d_model = 96
 d_word = 768
@@ -223,6 +224,7 @@ class Squad2Model(BertPreTrainedModel):
         self.bert = BertModel(config)
         # TODO check with Google if it's normal there is no dropout on the token classifier of SQuAD in the TF version
         # self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        print('config.hidden_size', config.hidden_size)
         self.qa_outputs = nn.Linear(config.hidden_size, 2)
         self.apply(self.init_bert_weights)
 
@@ -236,7 +238,6 @@ class Squad2Model(BertPreTrainedModel):
         enc_blk = EncoderBlock(conv_num=2, ch_num=d_model, k=5, length=len_c)
         self.model_enc_blks = nn.ModuleList([enc_blk] * 7)
         self.out = Pointer()
-        self.cache = None
 
     def forward(self, cw_idxs, qw_idxs):
 
@@ -249,8 +250,21 @@ class Squad2Model(BertPreTrainedModel):
 
         question_output = question_output.permute(0, 2, 1).float()
         context_output = context_output.permute(0, 2, 1).float()
+
+        input = torch.cat((question_output, context_output), dim=2)
+        input = input.permute(0, 2, 1).float()
+        logits = self.qa_outputs(input)
+        logits = logits[:,question_output.shape[2]:,:]
+        start_logits, end_logits = logits.split(1, dim=-1)
+        start_logits = start_logits.squeeze(-1)
+        end_logits = end_logits.squeeze(-1)
+        start_logits = masked_softmax(start_logits.squeeze(), c_mask, log_softmax=True)
+        end_logits = masked_softmax(end_logits.squeeze(), c_mask, log_softmax=True)
+        return start_logits, end_logits
+
         #context_mask = context_mask.float()
         #question_mask = question_mask.float()
+        '''
         C = self.context_conv(context_output)  
         Q = self.question_conv(question_output)
         Ce = self.c_emb_enc(C, c_mask)
@@ -263,5 +277,8 @@ class Squad2Model(BertPreTrainedModel):
         for enc in self.model_enc_blks: M2 = enc(M2, c_mask)
         M3 = M2
         for enc in self.model_enc_blks: M3 = enc(M3, c_mask)
+ 
         start_logits, end_logits = self.out(M1, M2, M3, c_mask)
+        logits = self.qa_outputs(torch.cat(question_output, context_output))
         return start_logits, end_logits
+        '''
